@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroll Page Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d0f13;
+  --panel: #151820;
+  --panel-2: #1c2029;
+  --line: rgba(255,255,255,.09);
+  --text: #eceef2;
+  --muted: #8f97a3;
+  --accent: #ff8a3d;
+  --accent-soft: rgba(255,138,61,.14);
+  --danger: #ff5d5d;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: grid; grid-template-rows: 54px 1fr; overflow: hidden;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button {
+  cursor: pointer; border: 1px solid var(--line); background: var(--panel-2);
+  border-radius: 8px; padding: 7px 12px; transition: background .15s, border-color .15s;
+}
+button:hover { background: #252a35; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #1a0f05; font-weight: 600; }
+button.primary:hover { background: #ff9d5c; }
+button.ghost { background: transparent; }
+button.icon { padding: 4px 7px; font-size: 12px; line-height: 1; }
+button:disabled { opacity: .35; cursor: default; }
+label.btn { display: inline-block; cursor: pointer; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 7px 12px; }
+label.btn:hover { background: #252a35; }
+label.btn input { display: none; }
+.mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+/* Top bar */
+header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+header .brand { font-weight: 700; letter-spacing: .01em; margin-right: auto; display: flex; align-items: center; gap: 10px; }
+header .brand i { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); display: inline-block; }
+header .saved { color: var(--muted); font-size: 12px; margin-right: 6px; }
+
+main { display: grid; grid-template-columns: 250px 1fr 330px; min-height: 0; }
+
+/* Stops list */
+#stops { border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+#stops h2, #form h2 { margin: 0; padding: 14px 16px 10px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+#list { list-style: none; margin: 0; padding: 0 8px; overflow: auto; flex: 1; }
+#list li {
+  display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 8px;
+  padding: 8px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+}
+#list li:hover { background: var(--panel-2); }
+#list li.sel { background: var(--accent-soft); border-color: rgba(255,138,61,.4); }
+#list .n { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); text-align: center; }
+#list li.sel .n { color: var(--accent); }
+#list .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#list .t small { display: block; color: var(--muted); font-size: 11.5px; }
+#list .acts { display: flex; gap: 2px; opacity: .45; }
+#list li:hover .acts, #list li.sel .acts { opacity: 1; }
+#list .acts button[data-a="del"]:hover:not(:disabled) { color: var(--danger); border-color: rgba(255,93,93,.4); }
+button.danger { color: var(--danger); border-color: rgba(255,93,93,.35); background: transparent; }
+button.danger:hover { background: rgba(255,93,93,.1); }
+#stops .foot { padding: 10px 12px 14px; border-top: 1px solid var(--line); }
+#stops .foot button { width: 100%; }
+
+/* Canvas */
+#stage { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+#toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+#toolbar .grow { flex: 1; }
+#canvas { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 18px; overflow: hidden; }
+#imgBox { position: relative; display: inline-block; line-height: 0; user-select: none; -webkit-user-select: none; touch-action: none; }
+#photo { display: block; max-width: 100%; max-height: calc(100vh - 54px - 46px - 36px); border-radius: 6px; pointer-events: none; }
+#overlay { position: absolute; inset: 0; cursor: crosshair; }
+.box {
+  position: absolute; border: 1.5px dashed rgba(255,255,255,.55); border-radius: 4px;
+  background: rgba(255,255,255,.04); cursor: pointer;
+}
+.box .tag {
+  position: absolute; left: -1px; top: -20px; line-height: 1;
+  font: 600 11px "IBM Plex Mono", monospace; padding: 3px 5px; border-radius: 4px;
+  background: rgba(0,0,0,.7); color: #fff; white-space: nowrap; pointer-events: none;
+}
+.box.sel { border: 2px solid var(--accent); background: rgba(255,138,61,.12); cursor: move; z-index: 2; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); }
+.box.sel .tag { background: var(--accent); color: #1a0f05; }
+.handle { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid var(--accent); border-radius: 3px; }
+.handle[data-h="nw"] { left: -7px; top: -7px; cursor: nwse-resize; }
+.handle[data-h="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
+.handle[data-h="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.handle[data-h="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+#empty { text-align: center; color: var(--muted); line-height: 1.6; }
+#empty b { color: var(--text); }
+#imgBox.drop::after { content: ""; position: absolute; inset: 0; border: 2px dashed var(--accent); border-radius: 6px; }
+
+/* Form */
+#form { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
+.fields { padding: 0 16px 16px; display: grid; gap: 14px; }
+.field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+.field input[type=text], .field textarea {
+  width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; outline: none;
+}
+.field input[type=text]:focus, .field textarea:focus { border-color: rgba(255,138,61,.6); }
+.field textarea { min-height: 130px; resize: vertical; }
+.field .help { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.seg { display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; font-size: 13px; }
+.seg button.on { background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
+.boxinfo { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.boxinfo .mono { color: var(--text); font-size: 12px; }
+.divider { height: 1px; background: var(--line); margin: 6px 0; }
+.row { display: flex; gap: 8px; align-items: center; }
+input[type=color] { width: 38px; height: 32px; padding: 2px; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; }
+
+/* Modals */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; z-index: 50; }
+.modal.open { display: flex; flex-direction: column; }
+.modal .bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.modal .bar .title { font-weight: 600; margin-right: auto; }
+#previewWrap { flex: 1; display: flex; justify-content: center; align-items: stretch; padding: 16px; min-height: 0; }
+#previewFrame { width: 100%; height: 100%; border: 0; border-radius: 10px; background: #0b0c0f; box-shadow: 0 20px 60px rgba(0,0,0,.5); transition: width .3s ease; }
+#previewFrame.phone { width: 390px; max-height: 844px; align-self: center; }
+.sheet { margin: auto; width: min(760px, calc(100% - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.sheet .body { padding: 18px; display: grid; gap: 14px; }
+.sheet ol { margin: 0; padding-left: 20px; color: var(--muted); line-height: 1.7; }
+.sheet ol b { color: var(--text); font-weight: 600; }
+#snippet { width: 100%; height: 240px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.5 "IBM Plex Mono", monospace; color: #c9cdd5; resize: vertical; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--text); color: #111; padding: 8px 14px; border-radius: 8px; font-weight: 600; opacity: 0; transition: .25s; pointer-events: none; z-index: 60; }
+.toast.show { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
+.toast button { margin-left: 12px; padding: 3px 10px; background: #111; color: #fff; border-color: #111; font-weight: 600; }
+.toast button:hover { background: #333; }
+
+@media (max-width: 980px) {
+  main { grid-template-columns: 200px 1fr 280px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><i></i> Scroll Page Editor</div>
+  <span class="saved" id="saved"></span>
+  <label class="btn" title="Load a page you exported earlier to keep editing it">Open page…<input type="file" id="openPage" accept=".html,.htm,text/html"></label>
+  <button id="btnPreview">Preview</button>
+  <button class="primary" id="btnExport">Export</button>
+</header>
+
+<main>
+  <aside id="stops">
+    <h2>Stops</h2>
+    <ul id="list"></ul>
+    <div class="foot"><button id="btnAdd">+ Add stop</button></div>
+  </aside>
+
+  <section id="stage">
+    <div id="toolbar">
+      <span id="hint">Drag on the photo to draw this stop's highlight box.</span>
+      <span class="grow"></span>
+      <label class="btn">Change photo…<input type="file" id="photoInput" accept="image/*"></label>
+    </div>
+    <div id="canvas">
+      <div id="imgBox">
+        <img id="photo" alt="">
+        <div id="overlay"></div>
+      </div>
+      <div id="empty" hidden>
+        <p><b>Add your photo to start.</b><br>Drop an image here, or use “Change photo…” above.</p>
+      </div>
+    </div>
+  </section>
+
+  <aside id="form">
+    <h2>Selected stop</h2>
+    <div class="fields">
+      <div class="field">
+        <label>View</label>
+        <div class="seg" id="seg">
+          <button data-v="part">Zoom to a part</button>
+          <button data-v="whole">Whole photo</button>
+        </div>
+        <div class="help" id="segHelp"></div>
+      </div>
+      <div class="field" id="boxField">
+        <label>Highlight box</label>
+        <div class="boxinfo"><span class="mono" id="boxVals">—</span><span class="grow"></span></div>
+      </div>
+      <div class="field">
+        <label for="fKicker">Small label</label>
+        <input type="text" id="fKicker" placeholder="01 · Brain">
+      </div>
+      <div class="field">
+        <label for="fTitle">Title</label>
+        <input type="text" id="fTitle" placeholder="Microcontroller">
+      </div>
+      <div class="field">
+        <label for="fCaption">Caption</label>
+        <textarea id="fCaption" placeholder="What this part does…"></textarea>
+        <div class="help">Leave a blank line to start a new paragraph.</div>
+      </div>
+      <button class="danger" id="btnDelete">Delete this stop</button>
+
+      <div class="divider"></div>
+      <h2 style="padding:4px 0 0">Page settings</h2>
+      <div class="field">
+        <label for="fUrl">Photo URL on your website</label>
+        <input type="text" id="fUrl" placeholder="https://yoursite.com/images/zephyr-photo.jpg">
+        <div class="help">Upload the photo to your site, then paste its address here. Used only in the exported code.</div>
+      </div>
+      <div class="field">
+        <label>Highlight color</label>
+        <div class="row"><input type="color" id="fAccent"><span class="mono" id="accentVal"></span></div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div class="modal" id="previewModal">
+  <div class="bar">
+    <span class="title">Preview</span>
+    <div class="seg" id="sizeSeg" style="width:220px">
+      <button data-s="desk" class="on">Desktop</button>
+      <button data-s="phone">Phone</button>
+    </div>
+    <button id="closePreview">Close</button>
+  </div>
+  <div id="previewWrap"><iframe id="previewFrame" title="Preview"></iframe></div>
+</div>
+
+<div class="modal" id="exportModal">
+  <div class="sheet">
+    <div class="bar"><span class="title">Export for your website</span><button id="closeExport">Close</button></div>
+    <div class="body">
+      <ol>
+        <li><b>Upload your photo</b> to your website and paste its URL into <b>Photo URL</b> in the editor<span id="urlWarn"></span>.</li>
+        <li>Add a <b>full-width</b> custom HTML / code block to your page.</li>
+        <li><b>Paste</b> the code below into it.</li>
+      </ol>
+      <textarea id="snippet" readonly spellcheck="false"></textarea>
+      <div class="row">
+        <button class="primary" id="btnCopy">Copy code</button>
+        <button id="btnDownload">Download as a page (.html)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  // ---------- The published page's code (same as the finished snippet) ----------
+  var VIEW_CSS = "@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;600;700&display=swap');\n#ts-scrolly {\n  --ts-text: #f2f3f5;\n  --ts-muted: #b4bac4;\n  --ts-accent: #ff8a3d;\n  --ts-card: rgba(14, 16, 20, 0.86);\n  --ts-dim: rgba(6, 7, 10, 0.6);\n  position: relative;\n  width: 100%;\n  background: #0b0c0f;\n  color: var(--ts-text);\n  font-family: \"Inter\", system-ui, -apple-system, sans-serif;\n  line-height: 1.55;\n  -webkit-font-smoothing: antialiased;\n}\n#ts-scrolly *, #ts-scrolly *::before, #ts-scrolly *::after { box-sizing: border-box; }\n\n/* The photo layer: pinned to the screen for the whole section */\n#ts-scrolly .ts-sticky {\n  position: sticky;\n  top: 0;\n  height: 100vh;\n  height: 100svh;\n  overflow: hidden;\n}\n#ts-scrolly .ts-bg {\n  position: absolute; inset: -40px;\n  background-size: cover; background-position: center;\n  filter: blur(28px) brightness(.38) saturate(.9);\n  transform: scale(1.05);\n}\n/* The photo is drawn onto a canvas by the script; this just holds the image file */\n#ts-scrolly .ts-cam { display: none; }\n#ts-scrolly .ts-canvas {\n  position: absolute; inset: 0;\n  width: 100%; height: 100%;\n  display: block;\n  transform: translateZ(0);\n}\n\n/* The captions: scroll over the photo */\n#ts-scrolly .ts-steps {\n  position: relative;\n  z-index: 2;\n  margin-top: -100vh;\n  margin-top: -100svh;\n}\n#ts-scrolly .ts-step {\n  min-height: 140vh;\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  padding: 0 6vw;\n  pointer-events: none;\n}\n#ts-scrolly .ts-step:first-child { min-height: 100vh; }\n#ts-scrolly .ts-step:last-child { min-height: 110vh; }\n#ts-scrolly .ts-step.ts-center { justify-content: center; text-align: center; }\n#ts-scrolly .ts-card {\n  pointer-events: auto;\n  width: min(380px, 100%);\n  padding: 22px 24px;\n  background: var(--ts-card);\n  border: 1px solid rgba(255,255,255,.1);\n  border-radius: 14px;\n  box-shadow: 0 16px 48px rgba(0,0,0,.4);\n  opacity: .25;\n  transform: translateY(12px);\n  transition: opacity 450ms ease, transform 450ms ease;\n}\n#ts-scrolly .ts-step.is-active .ts-card { opacity: 1; transform: none; }\n#ts-scrolly .ts-center .ts-card { width: min(560px, 100%); background: rgba(14,16,20,.72); }\n#ts-scrolly .ts-num {\n  margin: 0 0 6px;\n  font-family: \"IBM Plex Mono\", ui-monospace, monospace;\n  font-size: 12px; letter-spacing: .12em; text-transform: uppercase;\n  color: var(--ts-accent);\n}\n#ts-scrolly .ts-card h2, #ts-scrolly .ts-card h3 { margin: 0 0 8px; line-height: 1.2; color: var(--ts-text); }\n#ts-scrolly .ts-card h2 { font-size: clamp(30px, 4.5vw, 46px); font-weight: 700; }\n#ts-scrolly .ts-card h3 { font-size: 21px; font-weight: 600; }\n#ts-scrolly .ts-card p { margin: 0; color: var(--ts-muted); font-size: 16px; }\n#ts-scrolly .ts-card p + p { margin-top: 10px; }\n#ts-scrolly .ts-hint { margin-top: 14px !important; font-size: 13px !important; letter-spacing: .08em; text-transform: uppercase; }\n\n/* Progress rail */\n#ts-scrolly .ts-rail {\n  position: absolute; right: 18px; top: 50%;\n  transform: translateY(-50%);\n  display: flex; flex-direction: column; gap: 10px;\n  z-index: 1;\n}\n#ts-scrolly .ts-rail span {\n  width: 6px; height: 6px; border-radius: 50%;\n  background: rgba(255,255,255,.3);\n  transition: background 300ms ease, transform 300ms ease;\n}\n#ts-scrolly .ts-rail span.is-on { background: var(--ts-accent); transform: scale(1.5); }\n\n/* Phones: part shown in the upper half, caption at the bottom */\n@media (max-width: 760px) {\n  /* Top padding pushes the caption into the lower part of the screen at each stop */\n  #ts-scrolly .ts-step { justify-content: center; padding: 52vh 14px 0; }\n  #ts-scrolly .ts-step.ts-center { padding-top: 0; }\n  #ts-scrolly .ts-card { padding: 18px 20px; }\n  #ts-scrolly .ts-card h3 { font-size: 19px; }\n  #ts-scrolly .ts-card p { font-size: 15px; }\n  #ts-scrolly .ts-rail { right: 8px; gap: 8px; }\n}";
+  var VIEW_JS = "(function () {\n  // Draws the zoomed photo, dimming and highlight on one <canvas> each frame.\n  // (Scaling a huge photo layer with CSS made browsers re-render it in tiles\n  // mid-scroll, which showed up as tearing.)\n  var root = document.getElementById('ts-scrolly');\n  if (!root) return;\n  var sticky = root.querySelector('.ts-sticky');\n  var img = root.querySelector('.ts-cam img');\n  var bg = root.querySelector('.ts-bg');\n  var rail = root.querySelector('.ts-rail');\n  var steps = Array.prototype.slice.call(root.querySelectorAll('.ts-step'));\n  var dots = [];\n  var IW = 1717, IH = 2576;   // fallback size until the photo loads\n  var MAX_ZOOM = 2.6;         // screen px per photo px; higher gets blurry\n  var shots = [], centers = [], lastActive = -1, rootTop = 0;\n  var vw = 0, vh = 0, dpr = 1, ready = false, lastY = null;\n  var levels = [];            // the photo at full, 1/2, 1/4 \u2026 size\n  var dprCap = 2;             // drops to 1 on devices that can't keep up\n  var frameGaps = [], lastFrame = 0;\n  var accent = '#ff8a3d', glow = 'rgba(255,138,61,.6)', dim = 'rgba(6,7,10,.6)';\n\n  var canvas = document.createElement('canvas');\n  canvas.className = 'ts-canvas';\n  sticky.insertBefore(canvas, rail);\n  var ctx = canvas.getContext('2d');\n\n  bg.style.backgroundImage = 'url(\"' + img.getAttribute('src') + '\")';\n  steps.forEach(function () {\n    var d = document.createElement('span'); rail.appendChild(d); dots.push(d);\n  });\n\n  function readColors() {\n    var cs = getComputedStyle(root);\n    var a = cs.getPropertyValue('--ts-accent').trim();\n    var d = cs.getPropertyValue('--ts-dim').trim();\n    if (a) accent = a;\n    if (d) dim = d;\n    var m = /^#([0-9a-f]{6})$/i.exec(accent);\n    if (m) {\n      var n = parseInt(m[1], 16);\n      glow = 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',.6)';\n    }\n  }\n\n  function phone() { return window.innerWidth <= 760; }\n\n  // A \"shot\" is where the camera looks: photo point (cx, cy) placed at screen point (fx, fy) at zoom p.\n  function buildShots() {\n    vw = sticky.clientWidth; vh = sticky.clientHeight;\n    dpr = Math.min(window.devicePixelRatio || 1, dprCap);\n    var w = Math.round(vw * dpr), h = Math.round(vh * dpr);\n    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }\n    var mob = phone();\n    shots = steps.map(function (s) {\n      var raw = (s.getAttribute('data-box') || '').trim();\n      if (!raw) {\n        return { cx: .5, cy: .5, fx: vw / 2, fy: vh / 2,\n                 p: Math.min(vw * .94 / IW, vh * .94 / IH), box: null };\n      }\n      var b = raw.split(/\\s+/).map(Number);\n      // Space the part may fill: left ~60% on desktop (caption on the right), top ~55% on phones.\n      var aw = mob ? vw * .9 : vw * .56, ah = mob ? vh * .5 : vh * .74;\n      var p = Math.min(aw / (b[2] / 100 * IW), ah / (b[3] / 100 * IH), MAX_ZOOM);\n      return { cx: (b[0] + b[2] / 2) / 100, cy: (b[1] + b[3] / 2) / 100,\n               fx: mob ? vw / 2 : vw * .36, fy: mob ? vh * .34 : vh / 2,\n               p: p, box: b };\n    });\n    rootTop = root.getBoundingClientRect().top + window.scrollY;\n    centers = steps.map(function (s) {\n      var r = s.getBoundingClientRect();\n      return r.top + window.scrollY - rootTop + r.height / 2;\n    });\n    readColors();\n    lastY = null;\n  }\n\n  function lerp(a, b, t) { return a + (b - a) * t; }\n  function ease(t) { // hold on each stop, glide in between\n    t = Math.min(1, Math.max(0, (t - .22) / .56));\n    return t * t * (3 - 2 * t);\n  }\n  function rrect(x, y, w, h, r) {\n    r = Math.min(r, w / 2, h / 2);\n    ctx.moveTo(x + r, y);\n    ctx.arcTo(x + w, y, x + w, y + h, r);\n    ctx.arcTo(x + w, y + h, x, y + h, r);\n    ctx.arcTo(x, y + h, x, y, r);\n    ctx.arcTo(x, y, x + w, y, r);\n    ctx.closePath();\n  }\n\n  function render() {\n    if (!shots.length) return;\n    var y = window.scrollY - rootTop + vh / 2;\n    if (y === lastY) return;\n    lastY = y;\n\n    var i = 0;\n    while (i < centers.length - 2 && y > centers[i + 1]) i++;\n    var t = centers.length > 1 ? (y - centers[i]) / (centers[i + 1] - centers[i]) : 0;\n    t = Math.min(1, Math.max(0, t));\n    var e = ease(t);\n    var A = shots[i], B = shots[Math.min(i + 1, shots.length - 1)];\n\n    var p = Math.exp(lerp(Math.log(A.p), Math.log(B.p), e));\n    var cx = lerp(A.cx, B.cx, e), cy = lerp(A.cy, B.cy, e);\n    var fx = lerp(A.fx, B.fx, e), fy = lerp(A.fy, B.fy, e);\n    var x = fx - p * cx * IW, yy = fy - p * cy * IH;\n\n    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);\n    ctx.clearRect(0, 0, vw, vh);\n    if (ready) {\n      // Pick the smallest copy that still has at least one photo pixel per screen pixel.\n      var k = Math.max(0, Math.min(levels.length - 1, Math.floor(Math.log(1 / (p * dpr)) / Math.LN2)));\n      var src = levels[k], f = Math.pow(2, k);\n      ctx.imageSmoothingEnabled = true;\n      ctx.imageSmoothingQuality = 'low';\n      // Only the visible part of the photo is drawn.\n      var sx = Math.max(0, -x / p), sy = Math.max(0, -yy / p);\n      var ex = Math.min(IW, (vw - x) / p), ey = Math.min(IH, (vh - yy) / p);\n      if (ex > sx && ey > sy) {\n        var lw = src.width, lh = src.height;\n        var ssx = Math.min(lw, sx / f), ssy = Math.min(lh, sy / f);\n        var ssw = Math.min(lw - ssx, (ex - sx) / f), ssh = Math.min(lh - ssy, (ey - sy) / f);\n        ctx.drawImage(src, ssx, ssy, ssw, ssh, x + sx * p, yy + sy * p, (ex - sx) * p, (ey - sy) * p);\n      }\n    }\n\n    // Highlight: fades out between stops, moves with the camera.\n    var ba = A.box, bb = B.box, oa = ba ? 1 : 0, ob = bb ? 1 : 0;\n    var box = ba && bb ? ba.map(function (v, k) { return lerp(v, bb[k], e); }) : (ba || bb);\n    var op = lerp(oa, ob, e) * (ba && bb ? 1 - Math.sin(Math.PI * e) * .6 : 1);\n    if (box && op > 0.001) {\n      var hx = x + p * box[0] / 100 * IW, hy = yy + p * box[1] / 100 * IH;\n      var hw = p * box[2] / 100 * IW, hh = p * box[3] / 100 * IH;\n      ctx.globalAlpha = op;\n      ctx.beginPath();\n      ctx.rect(0, 0, vw, vh);\n      rrect(hx, hy, hw, hh, 6);\n      ctx.fillStyle = dim;\n      ctx.fill('evenodd');\n      ctx.beginPath();\n      rrect(hx, hy, hw, hh, 6);\n      ctx.strokeStyle = glow;\n      ctx.globalAlpha = op * .35; ctx.lineWidth = 10; ctx.stroke();\n      ctx.globalAlpha = op * .5;  ctx.lineWidth = 5;  ctx.stroke();\n      ctx.strokeStyle = accent;\n      ctx.globalAlpha = op;       ctx.lineWidth = 2;  ctx.stroke();\n      ctx.globalAlpha = 1;\n    }\n\n    var active = t < .5 ? i : Math.min(i + 1, steps.length - 1);\n    if (active !== lastActive) {\n      steps.forEach(function (s, k) { s.classList.toggle('is-active', k === active); });\n      dots.forEach(function (d, k) { d.classList.toggle('is-on', k === active); });\n      lastActive = active;\n    }\n  }\n\n  var ticking = false;\n  function onScroll() {\n    if (ticking) return;\n    ticking = true;\n    requestAnimationFrame(function (now) {\n      ticking = false;\n      render();\n      // If scrolling runs well under 40 frames a second, draw at standard resolution instead.\n      if (lastFrame && now - lastFrame < 120) {\n        frameGaps.push(now - lastFrame);\n        if (frameGaps.length > 14) frameGaps.shift();\n        if (frameGaps.length === 14 && dprCap > 1 && (window.devicePixelRatio || 1) > 1) {\n          var sorted = frameGaps.slice().sort(function (a, b) { return a - b; });\n          if (sorted[7] > 25) { dprCap = 1; frameGaps = []; refresh(); }\n        }\n      }\n      lastFrame = now;\n    });\n  }\n  function refresh() { buildShots(); render(); }\n\n  function buildLevels() {\n    levels = [img];\n    var src = img, w = IW, h = IH;\n    while (w > 400 && h > 400) {\n      w = Math.ceil(w / 2); h = Math.ceil(h / 2);\n      var c = document.createElement('canvas'); c.width = w; c.height = h;\n      var cx2 = c.getContext('2d');\n      cx2.imageSmoothingEnabled = true; cx2.imageSmoothingQuality = 'high';\n      cx2.drawImage(src, 0, 0, w, h);\n      levels.push(c); src = c;\n    }\n  }\n\n  function start() {\n    var go = function () {\n      if (img.naturalWidth) { IW = img.naturalWidth; IH = img.naturalHeight; buildLevels(); ready = true; }\n      refresh();\n    };\n    if (img.decode) img.decode().then(go, go); else go();\n  }\n  if (img.complete) start(); else img.addEventListener('load', start);\n  window.addEventListener('scroll', onScroll, { passive: true });\n  window.addEventListener('resize', refresh);\n  window.addEventListener('load', refresh);\n  if (window.ResizeObserver) new ResizeObserver(function () { refresh(); }).observe(root);\n  refresh();\n})();";
+  var DEFAULT_ACCENT = '#ff8a3d';
+
+  var DEFAULT_STOPS = [
+    {
+      "kicker": "Build Diagram",
+      "title": "Zephyr",
+      "caption": "A rocket drone hybrid",
+      "box": null
+    },
+    {
+      "kicker": "01 · Brain",
+      "title": "Microcontroller",
+      "caption": "The microcontroller makes all the decisions about how to control the servos (stops 06 & 07) and the throttle. It also has a built-in Wi-Fi chip, so there's little to no latency between Bajaj's computer and the drone.",
+      "box": [
+        47.5,
+        28,
+        7,
+        5.5
+      ]
+    },
+    {
+      "kicker": "02 · Power",
+      "title": "On/off switch",
+      "caption": "How Zephyr turns on and off.",
+      "box": [
+        46,
+        29.9,
+        2.4,
+        1
+      ]
+    },
+    {
+      "kicker": "03 · Sensing",
+      "title": "Internal Measurement Unit (IMU)",
+      "caption": "This is a tilt sensor that relays information on tilt back to the microcontroller so it can counteract severe tilt.",
+      "box": [
+        45,
+        31.4,
+        4.1,
+        2.8
+      ]
+    },
+    {
+      "kicker": "04 · Power",
+      "title": "Voltage Monitor",
+      "caption": "This allows Bajaj to monitor his battery such that he doesn't draw his battery down to absolute zero charge.",
+      "box": [
+        55.3,
+        31.6,
+        4.6,
+        4
+      ]
+    },
+    {
+      "kicker": "05 · Signals",
+      "title": "Servo wiring",
+      "caption": "This is the wiring that relays information from the microcontroller to the servos.",
+      "box": [
+        45.5,
+        34,
+        13.5,
+        15
+      ]
+    },
+    {
+      "kicker": "06 · Speed control",
+      "title": "ESC wiring bundle",
+      "caption": "Zephyr has two motors, meaning there are two electronic speed controllers (ESCs). Since there's no simple way to combine the two ESCs' outputs into one, Bajaj has resorted to using converters as shown in the image.",
+      "box": [
+        43.5,
+        55.3,
+        13.5,
+        6.3
+      ]
+    },
+    {
+      "kicker": "07 · Steering",
+      "title": "Top servo",
+      "caption": "The top servo controls pitch.",
+      "box": [
+        42.5,
+        62.4,
+        14,
+        5.6
+      ]
+    },
+    {
+      "kicker": "08 · Steering",
+      "title": "Bottom servo",
+      "caption": "The bottom servo controls roll.",
+      "box": [
+        44.5,
+        67.6,
+        10,
+        4.8
+      ]
+    },
+    {
+      "kicker": "09 · Thrust",
+      "title": "Motors and fans",
+      "caption": "These are the motors and fans whose direction is controlled by the top servo and bottom servo, to make instantaneous adjustments within the air.",
+      "box": [
+        36,
+        70.5,
+        27,
+        8
+      ]
+    },
+    {
+      "kicker": "10 · Structure",
+      "title": "Landing legs and frame",
+      "caption": "This is the frame and the base of Zephyr. It is a pyramidal structure.",
+      "box": [
+        2,
+        50,
+        96,
+        49
+      ]
+    },
+    {
+      "kicker": "Putting it together",
+      "title": "Zephyr",
+      "caption": "",
+      "box": null
+    }
+  ];
+
+  var KEY = 'scroll-page-editor-zephyr';
+  var state = {
+    stops: clone(DEFAULT_STOPS),
+    sel: 0,
+    photo: '',          // what the editor shows (data URL or file path)
+    url: 'zephyr-photo.jpg',   // what the exported code points to
+    accent: DEFAULT_ACCENT
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var list = $('list'), overlay = $('overlay'), photo = $('photo'), imgBox = $('imgBox');
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function r1(v) { return Math.round(v * 10) / 10; }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function cur() { return state.stops[state.sel]; }
+
+  // ---------- Saving (in this browser) ----------
+  var saveTimer;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(state));
+        $('saved').textContent = 'Saved in this browser';
+      } catch (e) {
+        try {
+          var lite = clone(state); lite.photo = '';
+          localStorage.setItem(KEY, JSON.stringify(lite));
+          $('saved').textContent = 'Saved (photo too large to keep)';
+        } catch (e2) { $('saved').textContent = 'Not saved'; }
+      }
+    }, 300);
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return;
+      var s = JSON.parse(raw);
+      if (s && Array.isArray(s.stops) && s.stops.length) {
+        state.stops = s.stops;
+        state.sel = clamp(s.sel || 0, 0, s.stops.length - 1);
+        state.photo = s.photo || '';
+        state.url = s.url || state.url;
+        state.accent = s.accent || state.accent;
+      }
+    } catch (e) {}
+  }
+
+  function toast(msg, actionLabel, action) {
+    var t = $('toast'); t.textContent = msg;
+    if (actionLabel) {
+      var b = document.createElement('button'); b.textContent = actionLabel;
+      b.addEventListener('click', function () { t.classList.remove('show'); action(); });
+      t.appendChild(b);
+    }
+    t.classList.add('show');
+    clearTimeout(toast.t);
+    toast.t = setTimeout(function () { t.classList.remove('show'); }, actionLabel ? 6000 : 1800);
+  }
+
+  // Delete right away (no pop-up, which some browsers block), with Undo.
+  function deleteStop(i) {
+    if (state.stops.length < 2) { toast('A page needs at least one stop'); return; }
+    var removed = state.stops.splice(i, 1)[0], prevSel = state.sel;
+    if (state.sel > i || state.sel >= state.stops.length) state.sel--;
+    state.sel = clamp(state.sel, 0, state.stops.length - 1);
+    renderAll(); save();
+    toast('Deleted “' + (removed.title || 'stop') + '”', 'Undo', function () {
+      state.stops.splice(i, 0, removed); state.sel = prevSel; renderAll(); save();
+    });
+  }
+
+  // ---------- Photo ----------
+  function setPhoto(src) {
+    photo.onload = function () { $('empty').hidden = true; imgBox.hidden = false; renderBoxes(); };
+    photo.onerror = function () { imgBox.hidden = true; $('empty').hidden = false; };
+    photo.src = src;
+  }
+  function readFile(file) {
+    if (!file || !/^image\//.test(file.type)) return;
+    var fr = new FileReader();
+    fr.onload = function () {
+      state.photo = fr.result;
+      if (!state.url || state.url === 'zephyr-photo.jpg') state.url = file.name;
+      $('fUrl').value = state.url;
+      setPhoto(state.photo); save();
+    };
+    fr.readAsDataURL(file);
+  }
+  $('photoInput').addEventListener('change', function (e) { readFile(e.target.files[0]); e.target.value = ''; });
+  ['dragover', 'dragenter'].forEach(function (ev) {
+    $('canvas').addEventListener(ev, function (e) { e.preventDefault(); imgBox.classList.add('drop'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    $('canvas').addEventListener(ev, function (e) { e.preventDefault(); imgBox.classList.remove('drop'); });
+  });
+  $('canvas').addEventListener('drop', function (e) { readFile(e.dataTransfer.files[0]); });
+
+  // ---------- Stops list ----------
+  function renderList() {
+    list.innerHTML = '';
+    state.stops.forEach(function (s, i) {
+      var li = document.createElement('li');
+      if (i === state.sel) li.className = 'sel';
+      li.innerHTML =
+        '<span class="n">' + (i + 1) + '</span>' +
+        '<span class="t">' + esc(s.title || 'Untitled') + '<small>' + (s.box ? 'Zoomed part' : 'Whole photo') + '</small></span>' +
+        '<span class="acts">' +
+          '<button class="icon ghost" data-a="up" title="Move up"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+          '<button class="icon ghost" data-a="down" title="Move down"' + (i === state.stops.length - 1 ? ' disabled' : '') + '>↓</button>' +
+          '<button class="icon ghost" data-a="del" title="Delete"' + (state.stops.length < 2 ? ' disabled' : '') + '>✕</button>' +
+        '</span>';
+      li.addEventListener('click', function (e) {
+        var a = e.target.getAttribute && e.target.getAttribute('data-a');
+        if (a === 'up' && i > 0) { swap(i, i - 1); state.sel = i - 1; }
+        else if (a === 'down' && i < state.stops.length - 1) { swap(i, i + 1); state.sel = i + 1; }
+        else if (a === 'del') { deleteStop(i); return; }
+        else { state.sel = i; }
+        renderAll(); save();
+      });
+      list.appendChild(li);
+    });
+  }
+  function swap(a, b) { var t = state.stops[a]; state.stops[a] = state.stops[b]; state.stops[b] = t; }
+  $('btnAdd').addEventListener('click', function () {
+    var n = state.stops.length;
+    state.stops.splice(state.sel + 1, 0, { kicker: '', title: 'New stop', caption: '', box: null, wantsBox: true });
+    state.sel = state.sel + 1;
+    renderAll(); save();
+    $('fTitle').focus(); $('fTitle').select();
+  });
+
+  // ---------- Form ----------
+  function renderForm() {
+    var s = cur();
+    $('fKicker').value = s.kicker || '';
+    $('fTitle').value = s.title || '';
+    $('fCaption').value = s.caption || '';
+    $('btnDelete').disabled = state.stops.length < 2;
+    var part = !!s.box || !!s.wantsBox;
+    $('seg').querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('on', (b.getAttribute('data-v') === 'part') === part);
+    });
+    $('segHelp').textContent = part
+      ? 'Drag on the photo to draw the box. Drag inside it to move, or its corners to resize.'
+      : 'Shows the full photo with the caption centered, good for an intro or ending.';
+    $('boxField').style.display = part ? '' : 'none';
+    $('boxVals').textContent = s.box ? s.box.map(function (v) { return r1(v) + '%'; }).join('  ') : 'Not drawn yet: drag on the photo';
+    $('hint').textContent = part
+      ? (s.box ? 'Drag inside the box to move it, or its corners to resize. Drag elsewhere to redraw.' : 'Drag on the photo to draw this stop’s highlight box.')
+      : 'This stop shows the whole photo. Switch to “Zoom to a part” to draw a box.';
+  }
+  function bindText(id, key) {
+    $(id).addEventListener('input', function () {
+      cur()[key] = $(id).value;
+      if (key === 'title') { renderList(); renderBoxes(); }
+      save();
+    });
+  }
+  $('btnDelete').addEventListener('click', function () { deleteStop(state.sel); });
+  bindText('fKicker', 'kicker'); bindText('fTitle', 'title'); bindText('fCaption', 'caption');
+  $('seg').addEventListener('click', function (e) {
+    var v = e.target.getAttribute('data-v'); if (!v) return;
+    var s = cur();
+    if (v === 'whole') { if (s.box) s.lastBox = s.box; s.box = null; s.wantsBox = false; }
+    else { s.wantsBox = true; if (!s.box && s.lastBox) s.box = s.lastBox; }
+    renderAll(); save();
+  });
+  $('fUrl').addEventListener('input', function () { state.url = $('fUrl').value.trim(); save(); });
+  $('fAccent').addEventListener('input', function () { setAccent($('fAccent').value); save(); });
+  function setAccent(c) {
+    state.accent = c;
+    document.documentElement.style.setProperty('--accent', c);
+    $('fAccent').value = c; $('accentVal').textContent = c;
+  }
+
+  // ---------- Boxes on the photo ----------
+  function renderBoxes() {
+    overlay.innerHTML = '';
+    state.stops.forEach(function (s, i) {
+      if (!s.box) return;
+      var d = document.createElement('div');
+      d.className = 'box' + (i === state.sel ? ' sel' : '');
+      d.dataset.i = i;
+      d.style.left = s.box[0] + '%'; d.style.top = s.box[1] + '%';
+      d.style.width = s.box[2] + '%'; d.style.height = s.box[3] + '%';
+      d.innerHTML = '<span class="tag">' + (i + 1) + (i === state.sel ? ' · ' + esc(s.title || '') : '') + '</span>';
+      if (i === state.sel) {
+        ['nw', 'ne', 'sw', 'se'].forEach(function (h) {
+          var k = document.createElement('div'); k.className = 'handle'; k.dataset.h = h; d.appendChild(k);
+        });
+      }
+      overlay.appendChild(d);
+    });
+  }
+
+  var drag = null;
+  function pt(e) {
+    var r = overlay.getBoundingClientRect();
+    return { x: clamp((e.clientX - r.left) / r.width * 100, 0, 100), y: clamp((e.clientY - r.top) / r.height * 100, 0, 100) };
+  }
+  overlay.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    var p = pt(e), s = cur();
+    var h = e.target.dataset && e.target.dataset.h;
+    var boxEl = e.target.closest('.box');
+    if (h) {
+      drag = { mode: 'resize', h: h, start: s.box.slice() };
+    } else if (boxEl && +boxEl.dataset.i === state.sel) {
+      drag = { mode: 'move', p0: p, start: s.box.slice() };
+    } else {
+      // On empty photo or another stop's box: a drag draws this stop's box,
+      // a plain click on another box selects that stop instead.
+      drag = { mode: 'draw', p0: p, other: boxEl ? +boxEl.dataset.i : -1, prev: s.box, started: false };
+    }
+    overlay.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  overlay.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var p = pt(e), s = cur(), b;
+    if (drag.mode === 'draw') {
+      if (!drag.started) {
+        var r = overlay.getBoundingClientRect();
+        if (Math.hypot((p.x - drag.p0.x) * r.width / 100, (p.y - drag.p0.y) * r.height / 100) < 5) return;
+        drag.started = true; s.wantsBox = true;
+      }
+      b = [Math.min(drag.p0.x, p.x), Math.min(drag.p0.y, p.y), Math.abs(p.x - drag.p0.x), Math.abs(p.y - drag.p0.y)];
+    } else if (drag.mode === 'move') {
+      var st = drag.start;
+      b = [clamp(st[0] + p.x - drag.p0.x, 0, 100 - st[2]), clamp(st[1] + p.y - drag.p0.y, 0, 100 - st[3]), st[2], st[3]];
+    } else {
+      var o = drag.start, x1 = o[0], y1 = o[1], x2 = o[0] + o[2], y2 = o[1] + o[3];
+      if (drag.h.indexOf('w') >= 0) x1 = Math.min(p.x, x2 - 1); else x2 = Math.max(p.x, x1 + 1);
+      if (drag.h.indexOf('n') >= 0) y1 = Math.min(p.y, y2 - 1); else y2 = Math.max(p.y, y1 + 1);
+      b = [x1, y1, x2 - x1, y2 - y1];
+    }
+    s.box = b.map(r1);
+    renderBoxes(); renderFormBox();
+  });
+  function endDrag() {
+    if (!drag) return;
+    var s = cur();
+    if (drag.mode === 'draw') {
+      if (!drag.started) {
+        if (drag.other >= 0) state.sel = drag.other;      // click selects that stop
+      } else if (s.box[2] < 1 || s.box[3] < 1) {
+        s.box = drag.prev;                                 // too small: undo
+      } else if (drag.prev) {
+        s.lastBox = drag.prev;
+      }
+    }
+    drag = null;
+    renderAll(); save();
+  }
+  overlay.addEventListener('pointerup', endDrag);
+  overlay.addEventListener('pointercancel', endDrag);
+  function renderFormBox() {
+    var s = cur();
+    $('boxVals').textContent = s.box ? s.box.map(function (v) { return r1(v) + '%'; }).join('  ') : '';
+  }
+
+  // Arrow keys nudge the selected box (Shift = bigger steps)
+  document.addEventListener('keydown', function (e) {
+    var tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteStop(state.sel); return; }
+    var s = cur(); if (!s.box) return;
+    var d = e.shiftKey ? 1 : 0.2, b = s.box.slice();
+    if (e.key === 'ArrowLeft') b[0] -= d; else if (e.key === 'ArrowRight') b[0] += d;
+    else if (e.key === 'ArrowUp') b[1] -= d; else if (e.key === 'ArrowDown') b[1] += d;
+    else return;
+    e.preventDefault();
+    b[0] = clamp(b[0], 0, 100 - b[2]); b[1] = clamp(b[1], 0, 100 - b[3]);
+    s.box = b.map(r1); renderBoxes(); renderFormBox(); save();
+  });
+
+  function renderAll() { renderList(); renderForm(); renderBoxes(); }
+
+  // ---------- Generating the page code ----------
+  function captionHtml(c) {
+    return String(c || '').split(/\n\s*\n/).map(function (para) {
+      para = para.trim(); if (!para) return '';
+      return '        <p>' + esc(para).replace(/\n/g, '<br>') + '</p>\n';
+    }).join('');
+  }
+  function buildSnippet(imgSrc) {
+    var css = VIEW_CSS.replace(/--ts-accent:\s*#[0-9a-fA-F]{3,8}/, '--ts-accent: ' + state.accent);
+    var rgb = hexToRgb(state.accent);
+    if (rgb) css = css.replace(/rgba\(255,\s*138,\s*61,/g, 'rgba(' + rgb.join(',') + ',');
+    var js = VIEW_JS;
+    var steps = state.stops.map(function (s, i) {
+      var whole = !s.box;
+      var h = whole && i === 0 ? 'h2' : 'h3';
+      var out = '    <div class="ts-step' + (whole ? ' ts-center' : '') + '"' +
+        (whole ? '' : ' data-box="' + s.box.map(r1).join(' ') + '"') + '>\n' +
+        '      <div class="ts-card">\n';
+      if (s.kicker) out += '        <p class="ts-num">' + esc(s.kicker) + '</p>\n';
+      if (s.title) out += '        <' + h + '>' + esc(s.title) + '</' + h + '>\n';
+      out += captionHtml(s.caption);
+      if (i === 0 && whole) out += '        <p class="ts-hint">Scroll to explore ↓</p>\n';
+      out += '      </div>\n    </div>\n';
+      return out;
+    }).join('\n');
+    return '<!-- Scroll page: made with Scroll Page Editor -->\n' +
+      '<style>\n' + css + '\n</style>\n\n' +
+      '<section id="ts-scrolly" aria-label="Annotated walkthrough">\n' +
+      '  <div class="ts-sticky" aria-hidden="true">\n' +
+      '    <div class="ts-bg"></div>\n' +
+      '    <div class="ts-cam">\n' +
+      '      <img src="' + esc(imgSrc) + '" alt="">\n' +
+      '      <div class="ts-hl"></div>\n' +
+      '    </div>\n' +
+      '    <div class="ts-rail"></div>\n' +
+      '  </div>\n\n' +
+      '  <div class="ts-steps">\n' + steps + '  </div>\n' +
+      '</section>\n\n' +
+      '<scr' + 'ipt>\n' + js + '\n</scr' + 'ipt>\n';
+  }
+  function fullPage(snippet) {
+    return '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+      '<title>' + esc(state.stops[0] && state.stops[0].title || 'Scroll page') + '</title>\n' +
+      '<link rel="preconnect" href="https://fonts.googleapis.com">\n' +
+      '<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">\n' +
+      '<style>body { margin: 0; background: #0b0c0f; }</style>\n</head>\n<body>\n\n' +
+      snippet + '\n</body>\n</html>\n';
+  }
+  function hexToRgb(h) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(h); if (!m) return null;
+    var n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+
+  // ---------- Preview ----------
+  $('btnPreview').addEventListener('click', function () {
+    if (!photo.naturalWidth) { toast('Add a photo first'); return; }
+    var src = photo.src; // data URL or absolute file URL
+    $('previewFrame').srcdoc = fullPage(buildSnippet(src));
+    $('previewModal').classList.add('open');
+  });
+  $('closePreview').addEventListener('click', function () {
+    $('previewModal').classList.remove('open'); $('previewFrame').srcdoc = '';
+  });
+  $('sizeSeg').addEventListener('click', function (e) {
+    var s = e.target.getAttribute('data-s'); if (!s) return;
+    this.querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', b === e.target); });
+    $('previewFrame').classList.toggle('phone', s === 'phone');
+  });
+
+  // ---------- Export ----------
+  $('btnExport').addEventListener('click', function () {
+    var missing = state.stops.filter(function (s) { return s.wantsBox && !s.box; });
+    $('snippet').value = buildSnippet(state.url || 'zephyr-photo.jpg');
+    $('urlWarn').textContent = state.url && /^https?:\/\//.test(state.url) ? '' :
+      ' (right now it points to “' + (state.url || 'zephyr-photo.jpg') + '”, which only works if the photo sits next to the page)';
+    $('exportModal').classList.add('open');
+    if (missing.length) toast(missing.length + ' stop(s) still need a box: shown as whole photo');
+  });
+  $('closeExport').addEventListener('click', function () { $('exportModal').classList.remove('open'); });
+  $('btnCopy').addEventListener('click', function () {
+    var ta = $('snippet');
+    function done() { toast('Copied'); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(done, function () { ta.select(); document.execCommand('copy'); done(); });
+    } else { ta.select(); document.execCommand('copy'); done(); }
+  });
+  $('btnDownload').addEventListener('click', function () {
+    var blob = new Blob([fullPage(buildSnippet(state.url || 'zephyr-photo.jpg'))], { type: 'text/html' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'index.html';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+
+  // ---------- Open a page exported earlier ----------
+  $('openPage').addEventListener('change', function (e) {
+    var f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    var fr = new FileReader();
+    fr.onload = function () {
+      var doc = new DOMParser().parseFromString(fr.result, 'text/html');
+      var els = doc.querySelectorAll('#ts-scrolly .ts-step');
+      if (!els.length) { toast('No scroll page found in that file'); return; }
+      state.stops = Array.prototype.map.call(els, function (el) {
+        var raw = (el.getAttribute('data-box') || '').trim();
+        var paras = Array.prototype.filter.call(el.querySelectorAll('.ts-card p'), function (p) {
+          return !p.classList.contains('ts-num') && !p.classList.contains('ts-hint');
+        }).map(function (p) { return p.innerHTML.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'); });
+        var k = el.querySelector('.ts-num'), t = el.querySelector('h2, h3');
+        return {
+          kicker: k ? k.textContent.trim() : '',
+          title: t ? t.textContent.trim() : '',
+          caption: paras.join('\n\n'),
+          box: raw ? raw.split(/\s+/).map(Number) : null
+        };
+      });
+      var img = doc.querySelector('#ts-scrolly .ts-cam img');
+      if (img && img.getAttribute('src')) { state.url = img.getAttribute('src'); $('fUrl').value = state.url; }
+      var m = /--ts-accent:\s*(#[0-9a-fA-F]{6})/.exec(fr.result);
+      if (m) setAccent(m[1]);
+      state.sel = 0;
+      renderAll(); save();
+      toast('Loaded ' + state.stops.length + ' stops');
+    };
+    fr.readAsText(f);
+  });
+
+  // ---------- Start ----------
+  load();
+  $('fUrl').value = state.url;
+  setAccent(state.accent);
+  imgBox.hidden = false;
+  setPhoto(state.photo || 'zephyr-photo.jpg');
+  renderAll();
+  window.addEventListener('resize', renderBoxes);
+})();
+</script>
+</body>
+</html>

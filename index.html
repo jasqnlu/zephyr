@@ -1,3 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zephyr: Build Diagram</title>
+<style>html,body{margin:0;background:#0b0c0f}</style>
+</head>
+<body>
 <!-- Scroll page: made with Scroll Page Editor -->
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;600;700&display=swap');
@@ -5,7 +14,7 @@
   --ts-text: #f2f3f5;
   --ts-muted: #b4bac4;
   --ts-accent: #ff8a3d;
-  --ts-card: rgba(14, 16, 20, 0.72);
+  --ts-card: rgba(14, 16, 20, 0.86);
   --ts-dim: rgba(6, 7, 10, 0.6);
   position: relative;
   width: 100%;
@@ -31,19 +40,13 @@
   filter: blur(28px) brightness(.38) saturate(.9);
   transform: scale(1.05);
 }
-#ts-scrolly .ts-cam {
-  position: absolute; left: 0; top: 0;
-  transform-origin: 0 0;
-  will-change: transform;
-}
-#ts-scrolly .ts-cam img { display: block; width: 100%; height: 100%; }
-#ts-scrolly .ts-hl {
-  position: absolute;
-  border: calc(2px / var(--ts-p, 1)) solid var(--ts-accent);
-  border-radius: calc(6px / var(--ts-p, 1));
-  box-shadow: 0 0 0 9999px var(--ts-dim), 0 0 calc(20px / var(--ts-p, 1)) rgba(255,138,61,.6);
-  pointer-events: none;
-  opacity: 0;
+/* The photo is drawn onto a canvas by the script; this just holds the image file */
+#ts-scrolly .ts-cam { display: none; }
+#ts-scrolly .ts-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  transform: translateZ(0);
 }
 
 /* The captions: scroll over the photo */
@@ -69,8 +72,6 @@
   width: min(380px, 100%);
   padding: 22px 24px;
   background: var(--ts-card);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 14px;
   box-shadow: 0 16px 48px rgba(0,0,0,.4);
@@ -79,7 +80,7 @@
   transition: opacity 450ms ease, transform 450ms ease;
 }
 #ts-scrolly .ts-step.is-active .ts-card { opacity: 1; transform: none; }
-#ts-scrolly .ts-center .ts-card { width: min(560px, 100%); background: rgba(14,16,20,.55); }
+#ts-scrolly .ts-center .ts-card { width: min(560px, 100%); background: rgba(14,16,20,.72); }
 #ts-scrolly .ts-num {
   margin: 0 0 6px;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
@@ -230,30 +231,58 @@
 
 <script>
 (function () {
+  // Draws the zoomed photo, dimming and highlight on one <canvas> each frame.
+  // (Scaling a huge photo layer with CSS made browsers re-render it in tiles
+  // mid-scroll, which showed up as tearing.)
   var root = document.getElementById('ts-scrolly');
   if (!root) return;
   var sticky = root.querySelector('.ts-sticky');
-  var cam = root.querySelector('.ts-cam');
-  var img = cam.querySelector('img');
-  var hl = root.querySelector('.ts-hl');
+  var img = root.querySelector('.ts-cam img');
   var bg = root.querySelector('.ts-bg');
   var rail = root.querySelector('.ts-rail');
   var steps = Array.prototype.slice.call(root.querySelectorAll('.ts-step'));
   var dots = [];
   var IW = 1717, IH = 2576;   // fallback size until the photo loads
   var MAX_ZOOM = 2.6;         // screen px per photo px; higher gets blurry
-  var shots = [], centers = [], lastActive = -1;
+  var shots = [], centers = [], lastActive = -1, rootTop = 0;
+  var vw = 0, vh = 0, dpr = 1, ready = false, lastY = null;
+  var levels = [];            // the photo at full, 1/2, 1/4 … size
+  var dprCap = 2;             // drops to 1 on devices that can't keep up
+  var frameGaps = [], lastFrame = 0;
+  var accent = '#ff8a3d', glow = 'rgba(255,138,61,.6)', dim = 'rgba(6,7,10,.6)';
+
+  var canvas = document.createElement('canvas');
+  canvas.className = 'ts-canvas';
+  sticky.insertBefore(canvas, rail);
+  var ctx = canvas.getContext('2d');
 
   bg.style.backgroundImage = 'url("' + img.getAttribute('src') + '")';
   steps.forEach(function () {
     var d = document.createElement('span'); rail.appendChild(d); dots.push(d);
   });
 
+  function readColors() {
+    var cs = getComputedStyle(root);
+    var a = cs.getPropertyValue('--ts-accent').trim();
+    var d = cs.getPropertyValue('--ts-dim').trim();
+    if (a) accent = a;
+    if (d) dim = d;
+    var m = /^#([0-9a-f]{6})$/i.exec(accent);
+    if (m) {
+      var n = parseInt(m[1], 16);
+      glow = 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',.6)';
+    }
+  }
+
   function phone() { return window.innerWidth <= 760; }
 
   // A "shot" is where the camera looks: photo point (cx, cy) placed at screen point (fx, fy) at zoom p.
   function buildShots() {
-    var vw = sticky.clientWidth, vh = sticky.clientHeight, mob = phone();
+    vw = sticky.clientWidth; vh = sticky.clientHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, dprCap);
+    var w = Math.round(vw * dpr), h = Math.round(vh * dpr);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    var mob = phone();
     shots = steps.map(function (s) {
       var raw = (s.getAttribute('data-box') || '').trim();
       if (!raw) {
@@ -268,13 +297,13 @@
                fx: mob ? vw / 2 : vw * .36, fy: mob ? vh * .34 : vh / 2,
                p: p, box: b };
     });
-    var top = root.getBoundingClientRect().top + window.scrollY;
+    rootTop = root.getBoundingClientRect().top + window.scrollY;
     centers = steps.map(function (s) {
       var r = s.getBoundingClientRect();
-      return r.top + window.scrollY - top + r.height / 2;
+      return r.top + window.scrollY - rootTop + r.height / 2;
     });
-    cam.style.width = IW + 'px';
-    cam.style.height = IH + 'px';
+    readColors();
+    lastY = null;
   }
 
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -282,11 +311,22 @@
     t = Math.min(1, Math.max(0, (t - .22) / .56));
     return t * t * (3 - 2 * t);
   }
+  function rrect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
 
   function render() {
     if (!shots.length) return;
-    var vh = sticky.clientHeight;
-    var y = window.scrollY - (root.getBoundingClientRect().top + window.scrollY) + vh / 2;
+    var y = window.scrollY - rootTop + vh / 2;
+    if (y === lastY) return;
+    lastY = y;
+
     var i = 0;
     while (i < centers.length - 2 && y > centers[i + 1]) i++;
     var t = centers.length > 1 ? (y - centers[i]) / (centers[i + 1] - centers[i]) : 0;
@@ -298,18 +338,48 @@
     var cx = lerp(A.cx, B.cx, e), cy = lerp(A.cy, B.cy, e);
     var fx = lerp(A.fx, B.fx, e), fy = lerp(A.fy, B.fy, e);
     var x = fx - p * cx * IW, yy = fy - p * cy * IH;
-    cam.style.transform = 'translate3d(' + x + 'px,' + yy + 'px,0) scale(' + p + ')';
-    cam.style.setProperty('--ts-p', p);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, vw, vh);
+    if (ready) {
+      // Pick the smallest copy that still has at least one photo pixel per screen pixel.
+      var k = Math.max(0, Math.min(levels.length - 1, Math.floor(Math.log(1 / (p * dpr)) / Math.LN2)));
+      var src = levels[k], f = Math.pow(2, k);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'low';
+      // Only the visible part of the photo is drawn.
+      var sx = Math.max(0, -x / p), sy = Math.max(0, -yy / p);
+      var ex = Math.min(IW, (vw - x) / p), ey = Math.min(IH, (vh - yy) / p);
+      if (ex > sx && ey > sy) {
+        var lw = src.width, lh = src.height;
+        var ssx = Math.min(lw, sx / f), ssy = Math.min(lh, sy / f);
+        var ssw = Math.min(lw - ssx, (ex - sx) / f), ssh = Math.min(lh - ssy, (ey - sy) / f);
+        ctx.drawImage(src, ssx, ssy, ssw, ssh, x + sx * p, yy + sy * p, (ex - sx) * p, (ey - sy) * p);
+      }
+    }
 
     // Highlight: fades out between stops, moves with the camera.
     var ba = A.box, bb = B.box, oa = ba ? 1 : 0, ob = bb ? 1 : 0;
     var box = ba && bb ? ba.map(function (v, k) { return lerp(v, bb[k], e); }) : (ba || bb);
     var op = lerp(oa, ob, e) * (ba && bb ? 1 - Math.sin(Math.PI * e) * .6 : 1);
-    if (box) {
-      hl.style.left = box[0] + '%'; hl.style.top = box[1] + '%';
-      hl.style.width = box[2] + '%'; hl.style.height = box[3] + '%';
+    if (box && op > 0.001) {
+      var hx = x + p * box[0] / 100 * IW, hy = yy + p * box[1] / 100 * IH;
+      var hw = p * box[2] / 100 * IW, hh = p * box[3] / 100 * IH;
+      ctx.globalAlpha = op;
+      ctx.beginPath();
+      ctx.rect(0, 0, vw, vh);
+      rrect(hx, hy, hw, hh, 6);
+      ctx.fillStyle = dim;
+      ctx.fill('evenodd');
+      ctx.beginPath();
+      rrect(hx, hy, hw, hh, 6);
+      ctx.strokeStyle = glow;
+      ctx.globalAlpha = op * .35; ctx.lineWidth = 10; ctx.stroke();
+      ctx.globalAlpha = op * .5;  ctx.lineWidth = 5;  ctx.stroke();
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = op;       ctx.lineWidth = 2;  ctx.stroke();
+      ctx.globalAlpha = 1;
     }
-    hl.style.opacity = op;
 
     var active = t < .5 ? i : Math.min(i + 1, steps.length - 1);
     if (active !== lastActive) {
@@ -323,18 +393,50 @@
   function onScroll() {
     if (ticking) return;
     ticking = true;
-    requestAnimationFrame(function () { ticking = false; render(); });
+    requestAnimationFrame(function (now) {
+      ticking = false;
+      render();
+      // If scrolling runs well under 40 frames a second, draw at standard resolution instead.
+      if (lastFrame && now - lastFrame < 120) {
+        frameGaps.push(now - lastFrame);
+        if (frameGaps.length > 14) frameGaps.shift();
+        if (frameGaps.length === 14 && dprCap > 1 && (window.devicePixelRatio || 1) > 1) {
+          var sorted = frameGaps.slice().sort(function (a, b) { return a - b; });
+          if (sorted[7] > 25) { dprCap = 1; frameGaps = []; refresh(); }
+        }
+      }
+      lastFrame = now;
+    });
   }
   function refresh() { buildShots(); render(); }
 
+  function buildLevels() {
+    levels = [img];
+    var src = img, w = IW, h = IH;
+    while (w > 400 && h > 400) {
+      w = Math.ceil(w / 2); h = Math.ceil(h / 2);
+      var c = document.createElement('canvas'); c.width = w; c.height = h;
+      var cx2 = c.getContext('2d');
+      cx2.imageSmoothingEnabled = true; cx2.imageSmoothingQuality = 'high';
+      cx2.drawImage(src, 0, 0, w, h);
+      levels.push(c); src = c;
+    }
+  }
+
   function start() {
-    if (img.naturalWidth) { IW = img.naturalWidth; IH = img.naturalHeight; }
-    refresh();
+    var go = function () {
+      if (img.naturalWidth) { IW = img.naturalWidth; IH = img.naturalHeight; buildLevels(); ready = true; }
+      refresh();
+    };
+    if (img.decode) img.decode().then(go, go); else go();
   }
   if (img.complete) start(); else img.addEventListener('load', start);
   window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', refresh);
   window.addEventListener('load', refresh);
+  if (window.ResizeObserver) new ResizeObserver(function () { refresh(); }).observe(root);
   refresh();
 })();
 </script>
+</body>
+</html>
